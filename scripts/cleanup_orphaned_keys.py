@@ -50,6 +50,12 @@ OPTIONS
                     after this window. Cancel with:
                         aws kms cancel-key-deletion --key-id <key-id>
 
+    --include-unaliased
+                    Also schedule deletion of customer-managed keys that have
+                    no alias at all. Keys without an alias are almost certainly
+                    abandoned (any active service would have tagged them with an
+                    alias). Use --dry-run first to review before committing.
+
 EXAMPLES
 --------
     # Preview orphaned keys without deleting anything:
@@ -60,6 +66,10 @@ EXAMPLES
 
     # Delete with a 30-day window for extra safety:
     python scripts/cleanup_orphaned_keys.py --pending-days 30
+
+    # Also catch keys that have no alias at all:
+    python scripts/cleanup_orphaned_keys.py --include-unaliased --dry-run
+    python scripts/cleanup_orphaned_keys.py --include-unaliased
 
 KMS DELETION NOTE
 -----------------
@@ -135,6 +145,40 @@ def key_is_deletable(kms_client, key_id: str) -> tuple[bool, str]:
     return True, ""
 
 
+def iter_aliased_key_ids(kms_client) -> set[str]:
+    """Return the set of all key IDs that have at least one alias."""
+    paginator = kms_client.get_paginator("list_aliases")
+    ids = set()
+    for page in paginator.paginate():
+        for alias in page["Aliases"]:
+            target = alias.get("TargetKeyId")
+            if target:
+                ids.add(target)
+    return ids
+
+
+def iter_unaliased_customer_keys(kms_client) -> list[str]:
+    """Return key IDs of enabled customer-managed keys that have no alias."""
+    aliased = iter_aliased_key_ids(kms_client)
+    paginator = kms_client.get_paginator("list_keys")
+    results = []
+    for page in paginator.paginate():
+        for entry in page["Keys"]:
+            key_id = entry["KeyId"]
+            if key_id in aliased:
+                continue
+            try:
+                meta = kms_client.describe_key(KeyId=key_id)["KeyMetadata"]
+            except ClientError:
+                continue
+            if (
+                meta.get("KeyManager") == "CUSTOMER"
+                and meta.get("KeyState") == "Enabled"
+            ):
+                results.append(key_id)
+    return results
+
+
 def schedule_deletion(kms_client, key_id: str, pending_days: int, dry_run: bool) -> None:
     print(f"    Scheduling deletion (pending {pending_days} days): {key_id}")
     if not dry_run:
@@ -161,6 +205,11 @@ def main() -> None:
         metavar="N",
         help=f"KMS pending-deletion window in days (7–30, default: {DEFAULT_PENDING_DAYS})",
     )
+    parser.add_argument(
+        "--include-unaliased",
+        action="store_true",
+        help="Also schedule deletion of customer-managed keys with no alias",
+    )
     args = parser.parse_args()
 
     if not 7 <= args.pending_days <= 30:
@@ -178,9 +227,8 @@ def main() -> None:
 
     if not aliases:
         print("No matching KMS aliases found.")
-        return
-
-    print(f"Found {len(aliases)} construct-managed key(s). Checking bucket status...\n")
+    else:
+        print(f"Found {len(aliases)} construct-managed key(s). Checking bucket status...\n")
 
     orphaned = 0
     skipped = 0
@@ -212,6 +260,25 @@ def main() -> None:
         print(f"  {alias_name}: bucket '{bucket_name}' does not exist — orphaned key")
         schedule_deletion(kms_client, key_id, args.pending_days, args.dry_run)
         orphaned += 1
+
+    # Second pass: alias-less customer keys
+    if args.include_unaliased:
+        print("\nScanning for customer-managed keys with no alias...")
+        unaliased = iter_unaliased_customer_keys(kms_client)
+
+        if not unaliased:
+            print("No unaliased customer-managed keys found.")
+        else:
+            print(f"Found {len(unaliased)} unaliased key(s).\n")
+            for key_id in unaliased:
+                deletable, reason = key_is_deletable(kms_client, key_id)
+                if not deletable:
+                    print(f"  {key_id}: not deletable ({reason}), skipping")
+                    skipped += 1
+                    continue
+                print(f"  {key_id}: no alias — orphaned key")
+                schedule_deletion(kms_client, key_id, args.pending_days, args.dry_run)
+                orphaned += 1
 
     print(f"\nDone. {orphaned} key(s) scheduled for deletion, {skipped} skipped.")
 
