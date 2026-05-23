@@ -121,5 +121,5 @@ class SecureS3BucketProps:
     # Tags
     tags: Dict[str, str] = field(default_factory=dict)
 
-    # Removal policy (RETAIN prevents accidental deletion)
-    removal_policy: str = "RETAIN"
+    # Removal policy — DESTROY removes empty buckets on teardown, but fails if objects exist
+    removal_policy: str = "DESTROY"

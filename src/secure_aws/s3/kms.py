@@ -121,6 +121,7 @@ class KMSKeyManager:
         id: str,
         props: KMSProps,
         bucket_name: str,
+        removal_policy: RemovalPolicy = RemovalPolicy.DESTROY,
         enable_key_policy_audit_logging: bool = True,
     ) -> Optional[kms.Key]:
         """Create a KMS key for S3 bucket encryption with scoped permissions.
@@ -141,7 +142,7 @@ class KMSKeyManager:
             description=key_description,
             enable_key_rotation=props.key_rotation_enabled,
             pending_window=Duration.days(7),
-            removal_policy=RemovalPolicy.RETAIN,
+            removal_policy=removal_policy,
         )
 
         # Apply custom rotation period if specified (AWS default is 365 days)
@@ -180,6 +181,7 @@ class KMSKeyManager:
         id: str,
         props: KMSProps,
         audit_bucket_name: str,
+        removal_policy: RemovalPolicy = RemovalPolicy.DESTROY,
     ) -> Optional[kms.Key]:
         """Create a separate KMS key for the audit bucket.
 
@@ -199,7 +201,7 @@ class KMSKeyManager:
             description=key_description,
             enable_key_rotation=props.key_rotation_enabled,
             pending_window=Duration.days(7),
-            removal_policy=RemovalPolicy.RETAIN,
+            removal_policy=removal_policy,
         )
 
         # Apply custom rotation period if specified (AWS default is 365 days)

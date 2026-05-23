@@ -75,11 +75,13 @@ class SecureAuditedS3Bucket(Construct):
     def _create_kms_keys(self) -> None:
         """Create KMS keys for encryption."""
         if self.props.compliance.enforce_encryption and self.props.kms.enable_kms:
+            removal_policy = RemovalPolicy[self.props.removal_policy]
             self.kms_key = KMSKeyManager.create_s3_key(
                 self,
                 "s3-kms-key",
                 self.props.kms,
                 self.props.bucket_name,
+                removal_policy=removal_policy,
             )
 
             self.audit_kms_key = KMSKeyManager.create_audit_bucket_key(
@@ -87,6 +89,7 @@ class SecureAuditedS3Bucket(Construct):
                 "audit-s3-kms-key",
                 self.props.kms,
                 self._audit_bucket_name,
+                removal_policy=removal_policy,
             )
 
     def _create_audit_bucket(self) -> None:
