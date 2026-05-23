@@ -94,7 +94,7 @@ class LifecycleManager:
         rules.append(
             s3.LifecycleRule(
                 id="CleanupIncompleteMultipartUploads",
-                abort_incomplete_multipart_upload=Duration.days(7),
+                abort_incomplete_multipart_upload_after=Duration.days(7),
                 enabled=True,
             )
         )

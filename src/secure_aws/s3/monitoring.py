@@ -4,6 +4,7 @@ from aws_cdk import (
     RemovalPolicy,
     aws_s3 as s3,
     aws_cloudwatch as cloudwatch,
+    aws_cloudwatch_actions as cw_actions,
     aws_sns as sns,
     aws_logs as logs,
     aws_kms as kms,
@@ -11,6 +12,38 @@ from aws_cdk import (
 )
 from typing import Optional
 from .props import MonitoringProps
+
+
+def _retention_days(days: int) -> logs.RetentionDays:
+    """Map an integer number of days to the nearest available RetentionDays enum value."""
+    options = [
+        (1, logs.RetentionDays.ONE_DAY),
+        (3, logs.RetentionDays.THREE_DAYS),
+        (5, logs.RetentionDays.FIVE_DAYS),
+        (7, logs.RetentionDays.ONE_WEEK),
+        (14, logs.RetentionDays.TWO_WEEKS),
+        (30, logs.RetentionDays.ONE_MONTH),
+        (60, logs.RetentionDays.TWO_MONTHS),
+        (90, logs.RetentionDays.THREE_MONTHS),
+        (120, logs.RetentionDays.FOUR_MONTHS),
+        (150, logs.RetentionDays.FIVE_MONTHS),
+        (180, logs.RetentionDays.SIX_MONTHS),
+        (365, logs.RetentionDays.ONE_YEAR),
+        (400, logs.RetentionDays.THIRTEEN_MONTHS),
+        (545, logs.RetentionDays.EIGHTEEN_MONTHS),
+        (731, logs.RetentionDays.TWO_YEARS),
+        (1096, logs.RetentionDays.THREE_YEARS),
+        (1827, logs.RetentionDays.FIVE_YEARS),
+        (2192, logs.RetentionDays.SIX_YEARS),
+        (2557, logs.RetentionDays.SEVEN_YEARS),
+        (2922, logs.RetentionDays.EIGHT_YEARS),
+        (3287, logs.RetentionDays.NINE_YEARS),
+        (3653, logs.RetentionDays.TEN_YEARS),
+    ]
+    for threshold, retention in options:
+        if days <= threshold:
+            return retention
+    return logs.RetentionDays.INFINITE
 
 
 class MonitoringManager:
@@ -50,8 +83,17 @@ class MonitoringManager:
 
         alarms = {}
 
-        # Object count alarm - detect unexpected changes
-        alarms["object_count"] = bucket.metrics.object_count().create_alarm(
+        # Object count alarm — daily metric, no request metrics config needed
+        alarms["object_count"] = cloudwatch.Metric(
+            namespace="AWS/S3",
+            metric_name="NumberOfObjects",
+            statistic="Average",
+            period=Duration.days(1),
+            dimensions_map={
+                "BucketName": bucket.bucket_name,
+                "StorageType": "AllStorageTypes",
+            },
+        ).create_alarm(
             scope,
             f"{id_prefix}-object-count-alarm",
             threshold=0,
@@ -59,8 +101,17 @@ class MonitoringManager:
             alarm_description="Alert if object count reaches zero unexpectedly",
         )
 
-        # Storage size alarm
-        alarms["bucket_size"] = bucket.metrics.bucket_size_bytes().create_alarm(
+        # Storage size alarm — daily metric, no request metrics config needed
+        alarms["bucket_size"] = cloudwatch.Metric(
+            namespace="AWS/S3",
+            metric_name="BucketSizeBytes",
+            statistic="Average",
+            period=Duration.days(1),
+            dimensions_map={
+                "BucketName": bucket.bucket_name,
+                "StorageType": "StandardStorage",
+            },
+        ).create_alarm(
             scope,
             f"{id_prefix}-bucket-size-alarm",
             threshold=props.alarm_bucket_size_threshold_gb * 1024 * 1024 * 1024,
@@ -68,13 +119,13 @@ class MonitoringManager:
             alarm_description=f"Alert if bucket size exceeds {props.alarm_bucket_size_threshold_gb}GB",
         )
 
-        # 4xx errors alarm (access denied, bad requests)
+        # 4xx errors alarm (access denied, bad requests) — requires request metrics on the bucket
         alarms["4xx_errors"] = cloudwatch.Metric(
             namespace="AWS/S3",
             metric_name="4xxErrors",
             statistic="Sum",
             period=Duration.minutes(5),
-            dimensions_map={"BucketName": bucket.bucket_name},
+            dimensions_map={"BucketName": bucket.bucket_name, "FilterId": "EntireBucket"},
         ).create_alarm(
             scope,
             f"{id_prefix}-4xx-errors-alarm",
@@ -83,13 +134,13 @@ class MonitoringManager:
             alarm_description=f"Alert on 4xx errors (access denied, etc) - threshold: {props.alarm_4xx_threshold}",
         )
 
-        # 5xx errors alarm (server errors)
+        # 5xx errors alarm (server errors) — requires request metrics on the bucket
         alarms["5xx_errors"] = cloudwatch.Metric(
             namespace="AWS/S3",
             metric_name="5xxErrors",
             statistic="Sum",
             period=Duration.minutes(5),
-            dimensions_map={"BucketName": bucket.bucket_name},
+            dimensions_map={"BucketName": bucket.bucket_name, "FilterId": "EntireBucket"},
         ).create_alarm(
             scope,
             f"{id_prefix}-5xx-errors-alarm",
@@ -98,10 +149,9 @@ class MonitoringManager:
             alarm_description=f"Alert on 5xx errors (server issues) - threshold: {props.alarm_5xx_threshold}",
         )
 
-        # Add SNS notification if topic provided
         if sns_topic:
             for alarm in alarms.values():
-                alarm.add_alarm_action(cloudwatch.SnsAction(sns_topic))
+                alarm.add_alarm_action(cw_actions.SnsAction(sns_topic))
 
         return alarms
 
@@ -113,26 +163,15 @@ class MonitoringManager:
         props: MonitoringProps,
         kms_key: Optional[kms.Key] = None,
     ) -> None:
-        """Configure bucket logging: access logs, CloudWatch metrics, and optional alarms."""
-        # Create request count alarm if both metrics and alarms are enabled
-        if props.enable_request_metrics and props.enable_cloudwatch_alarms:
-            bucket.metrics.all_requests_count().create_alarm(
-                scope,
-                f"{bucket.bucket_name}-requests-alarm",
-                threshold=0,
-                evaluation_periods=1,
-            )
-
-        # Create CloudWatch Log Group for S3 access logs with configured retention
+        """Configure bucket logging: CloudWatch log group for S3 access logs."""
         logs.LogGroup(
             scope,
-            f"{bucket.bucket_name}-log-group",
+            "log-group",
             log_group_name=f"/aws/s3/{bucket.bucket_name}",
-            retention=logs.RetentionDays(props.cloudwatch_log_retention_days),
+            retention=_retention_days(props.cloudwatch_log_retention_days),
             encryption_key=kms_key if kms_key else None,
             removal_policy=RemovalPolicy.RETAIN,
         )
-        # Additional alarms (public exposure detection, etc.) are created separately in _setup_monitoring
 
     @staticmethod
     def create_audit_bucket_logging(
@@ -144,20 +183,12 @@ class MonitoringManager:
         """Configure logging for the audit bucket itself."""
         logs.LogGroup(
             scope,
-            f"audit-bucket-log-group",
+            "audit-bucket-log-group",
             log_group_name=f"/aws/s3/audit/{audit_bucket.bucket_name}",
-            retention=logs.RetentionDays(props.cloudwatch_log_retention_days),
+            retention=_retention_days(props.cloudwatch_log_retention_days),
             encryption_key=kms_key if kms_key else None,
             removal_policy=RemovalPolicy.RETAIN,
         )
-
-        if props.enable_request_metrics and props.enable_cloudwatch_alarms:
-            audit_bucket.metrics.all_requests_count().create_alarm(
-                scope,
-                f"audit-bucket-requests-alarm",
-                threshold=0,
-                evaluation_periods=1,
-            )
 
     @staticmethod
     def create_public_exposure_alarms(
@@ -200,13 +231,13 @@ class MonitoringManager:
         metric_namespace = f"CloudTrailMetrics/{bucket_name}"
 
         metric_definitions = [
-            ("PutBucketPolicy", "$.eventName = PutBucketPolicy", "policy_change",
+            ("PutBucketPolicy", '{ $.eventName = "PutBucketPolicy" }', "policy_change",
              f"Alert on bucket policy changes for {bucket_name}"),
-            ("PutBucketAcl", "$.eventName = PutBucketAcl", "acl_change",
+            ("PutBucketAcl", '{ $.eventName = "PutBucketAcl" }', "acl_change",
              f"Alert on ACL changes for {bucket_name}"),
-            ("DeleteBucketPolicy", "$.eventName = DeleteBucketPolicy", "policy_delete",
+            ("DeleteBucketPolicy", '{ $.eventName = "DeleteBucketPolicy" }', "policy_delete",
              f"Alert on bucket policy deletion for {bucket_name}"),
-            ("PutAccountPublicAccessBlock", "$.eventName = PutAccountPublicAccessBlock",
+            ("PutAccountPublicAccessBlock", '{ $.eventName = "PutAccountPublicAccessBlock" }',
              "block_public_access_change", f"Alert on BlockPublicAccess changes for {bucket_name}"),
         ]
 
@@ -240,6 +271,6 @@ class MonitoringManager:
 
         if sns_topic:
             for alarm in alarms.values():
-                alarm.add_alarm_action(cloudwatch.SnsAction(sns_topic))
+                alarm.add_alarm_action(cw_actions.SnsAction(sns_topic))
 
         return alarms

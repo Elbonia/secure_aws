@@ -69,7 +69,6 @@ class SecureAuditedS3Bucket(Construct):
         self._create_audit_bucket()
         self._create_data_bucket()
         self._configure_policies()
-        self._setup_lifecycle()
         self._setup_monitoring()
 
     def _create_kms_keys(self) -> None:
@@ -98,7 +97,7 @@ class SecureAuditedS3Bucket(Construct):
             self,
             "audit-bucket",
             bucket_name=self._audit_bucket_name,
-            versioning_enabled=self.props.enable_versioning,
+            versioned=self.props.enable_versioning,
             block_public_access=s3.BlockPublicAccess(
                 block_public_acls=True,
                 block_public_policy=True,
@@ -129,7 +128,7 @@ class SecureAuditedS3Bucket(Construct):
             self,
             "s3-bucket",
             bucket_name=self.props.bucket_name,
-            versioning_enabled=self.props.compliance.enforce_versioning or self.props.enable_versioning,
+            versioned=self.props.compliance.enforce_versioning or self.props.enable_versioning,
             block_public_access=s3.BlockPublicAccess(
                 block_public_acls=self.props.compliance.block_all_public_access,
                 block_public_policy=self.props.compliance.block_all_public_access,
@@ -211,10 +210,6 @@ class SecureAuditedS3Bucket(Construct):
                 self.props.vpc_access.cross_account_principals,
                 self.kms_key,
             )
-
-    def _setup_lifecycle(self) -> None:
-        """Lifecycle rules are set during bucket creation."""
-        pass
 
     def _setup_monitoring(self) -> None:
         """Setup CloudWatch, SNS, and logging."""

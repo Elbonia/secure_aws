@@ -6,6 +6,7 @@ from .props import (
     MonitoringProps,
     ComplianceProps,
     ComplianceMode,
+    VPCAccessProps,
 )
 from .bucket import SecureAuditedS3Bucket
 
@@ -18,4 +19,5 @@ __all__ = [
     "MonitoringProps",
     "ComplianceProps",
     "ComplianceMode",
+    "VPCAccessProps",
 ]

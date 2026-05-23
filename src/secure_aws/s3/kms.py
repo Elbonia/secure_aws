@@ -86,10 +86,13 @@ class KMSKeyManager:
             return
 
         stack = Stack.of(scope)
-        log_group_arns = [
-            KMSKeyManager._log_group_arn(scope, log_group_name)
-            for log_group_name in log_group_names
-        ]
+        # CloudWatch Logs calls KMS directly as the service principal — not on behalf
+        # of an IAM principal — so kms:ViaService is NOT set in the request context.
+        # Per AWS recommendations, scope the grant using ArnLike on the encryption
+        # context ARN. stack.account and stack.region resolve to literal strings for
+        # environment-specific stacks, avoiding Fn::Join tokens that KMS cannot
+        # evaluate inside condition values.
+        arn_pattern = f"arn:aws:logs:{stack.region}:{stack.account}:log-group:*"
         key.add_to_resource_policy(
             iam.PolicyStatement(
                 sid="AllowCloudWatchLogsForConstructLogGroups",
@@ -104,12 +107,8 @@ class KMSKeyManager:
                 ],
                 resources=["*"],
                 conditions={
-                    "StringEquals": {
-                        "aws:SourceAccount": stack.account,
-                        "kms:ViaService": f"logs.{stack.region}.amazonaws.com",
-                    },
                     "ArnLike": {
-                        "kms:EncryptionContext:aws:logs:arn": log_group_arns,
+                        "kms:EncryptionContext:aws:logs:arn": arn_pattern,
                     },
                 },
             )

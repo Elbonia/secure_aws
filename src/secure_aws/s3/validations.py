@@ -130,15 +130,11 @@ class S3Validator:
                     f"KMS key rotation period must be 90-2555 days. Got: {props.kms.key_rotation_period_days}"
                 )
 
-        # Validate removal policy
-        valid_policies = {"RETAIN", "DESTROY", "SNAPSHOT"}
+        # Validate removal policy — SNAPSHOT is not supported for S3 or KMS
+        valid_policies = {"RETAIN", "DESTROY"}
         if props.removal_policy not in valid_policies:
             raise ValidationError(
                 f"removal_policy must be one of {valid_policies}. Got: {props.removal_policy!r}"
-            )
-        if props.compliance.compliance_mode == ComplianceMode.STRICT and props.removal_policy != "RETAIN":
-            raise ValidationError(
-                "STRICT compliance mode requires removal_policy to be 'RETAIN' to prevent accidental data loss"
             )
 
         # Strict compliance checks
@@ -210,3 +206,10 @@ class S3Validator:
                     "restrict_to_vpc=True requires at least one allowed_vpc_endpoint "
                     "or allowed_vpc_id"
                 )
+
+        if props.vpc_access.restrict_to_vpc and props.vpc_access.allow_cross_account_ingestion:
+            raise ValidationError(
+                "restrict_to_vpc and allow_cross_account_ingestion are mutually exclusive: "
+                "the VPC endpoint DENY policy blocks all external principals, including "
+                "cross-account ones"
+            )

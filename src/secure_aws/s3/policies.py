@@ -266,12 +266,15 @@ class S3PolicyManager:
             iam.PolicyStatement(
                 sid="DenyPublicRead",
                 effect=iam.Effect.DENY,
-                principals=[iam.PublicPrincipal()],
+                principals=[iam.AnyPrincipal()],
                 actions=["s3:GetObject", "s3:GetObjectVersion", "s3:ListBucket"],
                 resources=[
                     bucket.bucket_arn,
                     bucket.arn_for_objects("*"),
                 ],
+                conditions={
+                    "StringEquals": {"aws:PrincipalType": "Anonymous"},
+                },
             )
         )
 
