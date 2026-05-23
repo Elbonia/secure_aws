@@ -1,4 +1,4 @@
 from . import s3, kms
-from .kms import SecureKmsKey, SecureKmsKeyProps
+from .kms import SecureKmsKey, SecureKmsKeyProps, KMSProps
 
-__all__ = ["s3", "kms", "SecureKmsKey", "SecureKmsKeyProps"]
+__all__ = ["s3", "kms", "SecureKmsKey", "SecureKmsKeyProps", "KMSProps"]

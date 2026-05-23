@@ -2,21 +2,13 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Dict
 from enum import Enum
 
+from ..kms.props import KMSProps  # noqa: F401 — re-exported for callers who import from secure_aws.s3
+
 
 class ComplianceMode(str, Enum):
     """Compliance enforcement level."""
     STRICT = "strict"
     RECOMMENDED = "recommended"
-
-
-@dataclass
-class KMSProps:
-    """KMS encryption configuration."""
-    enable_kms: bool = True
-    key_rotation_enabled: bool = True
-    key_rotation_period_days: int = 90
-    key_alias_prefix: Optional[str] = None
-    enable_key_policy_audit_logging: bool = True
 
 
 @dataclass
