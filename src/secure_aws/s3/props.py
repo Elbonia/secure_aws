@@ -1,14 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict
-from enum import Enum
 
-from ..kms.props import KMSProps  # noqa: F401 — re-exported for callers who import from secure_aws.s3
-
-
-class ComplianceMode(str, Enum):
-    """Compliance enforcement level."""
-    STRICT = "strict"
-    RECOMMENDED = "recommended"
+from ..props import ComplianceMode  # noqa: F401 — re-exported for callers who import from secure_aws.s3
+from ..kms.props import KMSProps    # noqa: F401 — re-exported for callers who import from secure_aws.s3
 
 
 @dataclass
