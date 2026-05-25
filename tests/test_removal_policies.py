@@ -9,7 +9,13 @@ cdk destroy cleans up the full set of resources without leaving orphaned keys.
 import aws_cdk as cdk
 import pytest
 from aws_cdk import assertions
-from secure_aws.s3 import SecureAuditedS3Bucket, SecureS3BucketProps
+
+# S3 construct and S3-specific props
+from secure_aws.s3 import SecureAuditedS3Bucket, SecureS3BucketProps, MonitoringProps
+
+# Shared / cross-module props imported from their canonical locations
+from secure_aws.kms import KMSProps
+from secure_aws.props import ComplianceMode
 
 
 def make_stack(props: SecureS3BucketProps) -> assertions.Template:
